@@ -3,10 +3,12 @@ import subprocess
 import pytest
 
 from commitize.git import (
+    NoCommitsError,
     NoStagedChangesError,
     NoUnstagedChangesError,
     NotAGitRepoError,
     commit,
+    get_commits_since_last_release,
     get_staged_change,
     get_unstaged_change,
     is_git_repo,
@@ -107,3 +109,43 @@ def test_unstaged_change_all_ignored_raises(tmp_path):
     matcher = IgnoreMatcher(["*.log"])
     with pytest.raises(NoUnstagedChangesError):
         get_unstaged_change(cwd=tmp_path, matcher=matcher)
+
+
+def test_commits_since_last_release_not_a_repo(tmp_path):
+    with pytest.raises(NotAGitRepoError):
+        get_commits_since_last_release(cwd=tmp_path)
+
+
+def test_commits_since_last_release_no_commits(tmp_path):
+    _init_repo(tmp_path)
+    with pytest.raises(NoCommitsError):
+        get_commits_since_last_release(cwd=tmp_path)
+
+
+def test_commits_since_last_release_all_without_tag(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "a.txt").write_text("a\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    commit("feat: add a", "adds a", cwd=tmp_path)
+    (tmp_path / "b.txt").write_text("b\n")
+    subprocess.run(["git", "add", "b.txt"], cwd=tmp_path, check=True)
+    commit("fix: add b", "adds b", cwd=tmp_path)
+
+    commits = get_commits_since_last_release(cwd=tmp_path)
+    assert [c.subject for c in commits] == ["fix: add b", "feat: add a"]
+    assert commits[0].body == "adds b"
+
+
+def test_commits_since_last_release_respects_tag(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "a.txt").write_text("a\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    commit("feat: add a", cwd=tmp_path)
+    subprocess.run(["git", "tag", "v1.0.0"], cwd=tmp_path, check=True)
+
+    (tmp_path / "b.txt").write_text("b\n")
+    subprocess.run(["git", "add", "b.txt"], cwd=tmp_path, check=True)
+    commit("feat: add b", cwd=tmp_path)
+
+    commits = get_commits_since_last_release(cwd=tmp_path)
+    assert [c.subject for c in commits] == ["feat: add b"]

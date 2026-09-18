@@ -20,17 +20,19 @@ from commitize.config import (
     write_defaults,
 )
 from commitize.git import (
+    NoCommitsError,
     NoStagedChangesError,
     NoUnstagedChangesError,
     NotAGitRepoError,
     commit as git_commit,
+    get_commits_since_last_release,
     get_staged_change,
     get_unstaged_change,
     stage_all,
     stage_paths,
 )
 from commitize.llm import LLMAuthError, LLMRequestError, OpenAICompatibleClient
-from commitize.messages import CommitMessage, generate_commit_message
+from commitize.messages import CommitMessage, generate_changelog, generate_commit_message
 from commitize.providers import build_client, list_providers
 
 app = typer.Typer(
@@ -92,6 +94,54 @@ def commit_cmd(
         provider=provider,
         model=model,
     )
+
+
+@app.command("release")
+def release_cmd(
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write the changelog to this file instead of printing it.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
+    provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
+    model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
+) -> None:
+    """Generate a changelog from commits since the last release."""
+    config = Config.load()
+
+    try:
+        commits = get_commits_since_last_release()
+    except NotAGitRepoError as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(1)
+    except NoCommitsError as exc:
+        console.print(f"[yellow]{exc}[/]")
+        raise typer.Exit(1)
+
+    client = _build_client(config, provider, model, verbose)
+    if client is None:
+        raise typer.Exit(1)
+
+    existing_text = output.read_text() if output is not None and output.exists() else None
+
+    if verbose:
+        console.print("[dim]Requesting changelog from LLM...[/]")
+    try:
+        changelog = generate_changelog(client, commits, existing_text=existing_text)
+    except (LLMAuthError, LLMRequestError) as exc:
+        console.print(f"[red]Error generating changelog:[/] {exc}")
+        raise typer.Exit(1)
+    if verbose:
+        console.print("[dim]LLM response received.[/]")
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(changelog.rstrip() + "\n")
+        console.print(f"[green]Wrote changelog to {output}[/]")
+    else:
+        console.print(changelog)
 
 
 def run_commit_flow(

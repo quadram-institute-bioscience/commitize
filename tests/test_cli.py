@@ -161,3 +161,79 @@ def test_config_init_writes_defaults(tmp_path, monkeypatch):
 
     result = runner.invoke(cli.app, ["config", "init", "--force"])
     assert result.exit_code == 0, result.output
+
+
+def _init_repo_with_commit(path):
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+    (path / "hello.txt").write_text("hello\n")
+    subprocess.run(["git", "add", "hello.txt"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-qm", "feat: add hello"], cwd=path, check=True)
+
+
+def test_release_prints_changelog(tmp_path, monkeypatch):
+    _init_repo_with_commit(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(cli, "global_config_path", lambda: tmp_path / "unused_global.toml")
+    monkeypatch.setattr(
+        cli,
+        "generate_changelog",
+        lambda client, commits, existing_text=None: "## New features\n- add hello",
+    )
+
+    result = runner.invoke(cli.app, ["release"])
+
+    assert result.exit_code == 0, result.output
+    assert "## New features" in result.output
+    assert "- add hello" in result.output
+
+
+def test_release_writes_output_file(tmp_path, monkeypatch):
+    _init_repo_with_commit(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(cli, "global_config_path", lambda: tmp_path / "unused_global.toml")
+    monkeypatch.setattr(
+        cli,
+        "generate_changelog",
+        lambda client, commits, existing_text=None: "## Bug fixes\n- fix thing",
+    )
+
+    result = runner.invoke(cli.app, ["release", "-o", "CHANGELOG.md"])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "CHANGELOG.md").read_text().startswith("## Bug fixes")
+
+
+def test_release_integrates_existing_changelog(tmp_path, monkeypatch):
+    _init_repo_with_commit(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(cli, "global_config_path", lambda: tmp_path / "unused_global.toml")
+    (tmp_path / "CHANGELOG.md").write_text("## Old release\n- old stuff\n")
+
+    seen = {}
+
+    def _fake(client, commits, existing_text=None):
+        seen["existing_text"] = existing_text
+        return "## New features\n- new stuff\n\n## Old release\n- old stuff"
+
+    monkeypatch.setattr(cli, "generate_changelog", _fake)
+
+    result = runner.invoke(cli.app, ["release", "-o", "CHANGELOG.md"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["existing_text"].startswith("## Old release")
+    assert "new stuff" in (tmp_path / "CHANGELOG.md").read_text()
+
+
+def test_release_no_commits_errors(tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["release"])
+
+    assert result.exit_code == 1
+    assert "No commits" in result.output

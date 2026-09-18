@@ -6,9 +6,14 @@ import re
 from dataclasses import dataclass
 
 from commitize.config import Config
-from commitize.git import StagedChange
+from commitize.git import CommitInfo, StagedChange
 from commitize.llm import OpenAICompatibleClient
-from commitize.prompt import build_system_prompt, build_user_prompt
+from commitize.prompt import (
+    build_changelog_system_prompt,
+    build_changelog_user_prompt,
+    build_system_prompt,
+    build_user_prompt,
+)
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z]*\n|\n```$")
 
@@ -47,3 +52,13 @@ def generate_commit_message(
     user = build_user_prompt(change)
     raw = client.chat(system=system, user=user)
     return parse_message(raw)
+
+
+def generate_changelog(
+    client: OpenAICompatibleClient,
+    commits: list[CommitInfo],
+    existing_text: str | None = None,
+) -> str:
+    system = build_changelog_system_prompt()
+    user = build_changelog_user_prompt(commits, existing_text)
+    return client.chat(system=system, user=user)

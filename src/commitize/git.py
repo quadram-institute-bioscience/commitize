@@ -22,12 +22,23 @@ class NoUnstagedChangesError(RuntimeError):
     pass
 
 
+class NoCommitsError(RuntimeError):
+    pass
+
+
 @dataclass
 class StagedChange:
     diff: str
     stat: str
     truncated: bool
     files: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CommitInfo:
+    hash: str
+    subject: str
+    body: str
 
 
 def _run(args: list[str], cwd: Path | None = None) -> str:
@@ -161,6 +172,55 @@ def get_unstaged_change(
     return StagedChange(
         diff=diff, stat="".join(stat_parts), truncated=truncated, files=files
     )
+
+
+_COMMIT_SEPARATOR = "\x1e"
+_COMMIT_FIELD = "\x1f"
+
+
+def _last_release_tag(cwd: Path | None = None) -> str | None:
+    """Most recent tag reachable from HEAD, or None if the repo has no tags."""
+    result = subprocess.run(
+        ["git", "describe", "--tags", "--abbrev=0"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def get_commits_since_last_release(cwd: Path | None = None) -> list[CommitInfo]:
+    """Commit subjects/bodies since the latest release tag (or all commits)."""
+    if not is_git_repo(cwd):
+        raise NotAGitRepoError("Not inside a git repository")
+
+    last_tag = _last_release_tag(cwd)
+    range_spec = f"{last_tag}..HEAD" if last_tag else "HEAD"
+    fmt = f"%H{_COMMIT_FIELD}%s{_COMMIT_FIELD}%b{_COMMIT_SEPARATOR}"
+    try:
+        out = _run(["log", range_spec, "--pretty=format:" + fmt], cwd=cwd)
+    except RuntimeError:
+        raise NoCommitsError("No commits found since the last release.")
+
+    commits: list[CommitInfo] = []
+    for record in out.split(_COMMIT_SEPARATOR):
+        record = record.strip()
+        if not record:
+            continue
+        parts = record.split(_COMMIT_FIELD, 2)
+        commits.append(
+            CommitInfo(
+                hash=parts[0],
+                subject=parts[1] if len(parts) > 1 else "",
+                body=parts[2] if len(parts) > 2 else "",
+            )
+        )
+
+    if not commits:
+        raise NoCommitsError("No commits found since the last release.")
+    return commits
 
 
 def commit(subject: str, body: str = "", sign_off: bool = False, cwd: Path | None = None) -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from commitize.git import StagedChange
+from commitize.git import CommitInfo, StagedChange
 
 SYSTEM_CONVENTIONAL = """\
 You write git commit messages from a diff. Follow the Conventional Commits \
@@ -28,5 +28,43 @@ def build_user_prompt(change: StagedChange) -> str:
     if change.truncated:
         parts.append(
             "(Diff was truncated for length; the file summary above is complete.)"
+        )
+    return "\n\n".join(parts)
+
+
+SYSTEM_CHANGELOG = """\
+You write changelog entries from a list of git commit messages. Group the \
+changes under exactly these three headings, in this order:
+
+## New features
+## Bug fixes
+## Other changes
+
+Use concise, imperative bullet points (one per meaningful change), deduplicate \
+closely related commits, and drop trivial noise such as formatting-only tweaks \
+and merge commits. Output ONLY the changelog text -- no markdown fences, no \
+commentary."""
+
+
+def build_changelog_system_prompt() -> str:
+    return SYSTEM_CHANGELOG
+
+
+def build_changelog_user_prompt(
+    commits: list[CommitInfo], existing: str | None = None
+) -> str:
+    lines = ["Commits since the last release:"]
+    for commit in commits:
+        entry = f"- {commit.subject}"
+        if commit.body:
+            entry += f"\n  {commit.body}"
+        lines.append(entry)
+
+    parts = ["\n".join(lines)]
+    if existing:
+        parts.append(
+            "Here is the existing changelog. Integrate the new changes by adding "
+            "a new section for this release at the top, keeping the existing "
+            f"content below unchanged:\n\n{existing}"
         )
     return "\n\n".join(parts)
