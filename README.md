@@ -33,6 +33,8 @@ Commit with this message? [y/e/r/n]
 - `r` — regenerate
 - `n` — abort, nothing is committed
 
+The `release` command generates a changelog from commits since the last release tag (git tags ending in `-release`). It groups changes under headings "New features", "Bug fixes", and "Other changes", using an LLM to summarise and deduplicate. If the changelog file exists, new changes are prepended as a new release section while preserving existing content.
+
 If nothing is staged, commitize falls back to analysing your unstaged changes
 (tracked modifications and untracked files) and proposes to stage them and
 commit. Files listed in a `.commitize-ignore` file at the repo root are skipped.
@@ -53,6 +55,8 @@ commitize commit --all    # stage tracked modifications first (like `git commit 
 commitize commit --dry-run           # print the message, don't commit
 commitize commit --provider openai   # use a different configured provider
 commitize commit --model gpt-4o      # override the model for this run
+commitize release                  # generate a changelog since the last release
+commitize release -o CHANGELOG.md  # write to file instead of printing
 ```
 
 ## Configuration
