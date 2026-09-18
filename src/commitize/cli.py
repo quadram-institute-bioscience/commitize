@@ -17,6 +17,7 @@ from commitize.config import (
     global_config_path,
     local_config_target,
     set_value,
+    write_defaults,
 )
 from commitize.git import (
     NoStagedChangesError,
@@ -228,6 +229,23 @@ def config_set(
     path = _config_path(is_global)
     set_value(path, key, value)
     console.print(f"Set [bold]{key}[/] = {value} in {path}")
+
+
+@config_app.command("init")
+def config_init(
+    global_: bool = typer.Option(False, "--global", help="Initialize the global config (default)."),
+    local: bool = typer.Option(False, "--local", help="Initialize the repo-local .commitize.toml instead."),
+    force: bool = typer.Option(False, "--force", help="Overwrite the file if it already exists."),
+) -> None:
+    """Write the default configuration to the config file, ready to edit."""
+    is_global = global_ or not local
+    path = _config_path(is_global)
+    if not write_defaults(path, force=force):
+        console.print(
+            f"[yellow]{path} already exists; use --force to overwrite.[/]"
+        )
+        raise typer.Exit(1)
+    console.print(f"Wrote default configuration to {path}")
 
 
 @config_app.command("edit")

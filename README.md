@@ -63,6 +63,8 @@ Config lives in two places, merged together (repo-local wins):
 - Repo-local: `.commitize.toml` at the root of the current git repo
 
 ```bash
+commitize config init                                   # dump all defaults into the config file, ready to edit
+commitize config init --local                           # ...into the repo-local .commitize.toml
 commitize config show                                   # effective config + where each value came from
 commitize config get providers.openrouter.model
 commitize config set providers.openrouter.model openai/gpt-4o --global

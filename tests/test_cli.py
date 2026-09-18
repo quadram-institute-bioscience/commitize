@@ -125,3 +125,19 @@ def test_unstaged_fallback_respects_commitize_ignore(tmp_path, monkeypatch):
     assert "keep.txt" in tracked
     assert "secret.log" not in tracked
     assert ".commitize-ignore" not in tracked
+
+
+def test_config_init_writes_defaults(tmp_path, monkeypatch):
+    target = tmp_path / "config.toml"
+    monkeypatch.setattr(cli, "global_config_path", lambda: target)
+
+    result = runner.invoke(cli.app, ["config", "init"])
+    assert result.exit_code == 0, result.output
+    assert "[providers.openrouter]" in target.read_text()
+
+    result = runner.invoke(cli.app, ["config", "init"])
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+
+    result = runner.invoke(cli.app, ["config", "init", "--force"])
+    assert result.exit_code == 0, result.output

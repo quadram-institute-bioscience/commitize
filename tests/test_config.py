@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from commitize import config as config_mod
-from commitize.config import Config, set_value
+from commitize.config import Config, set_value, write_defaults
 
 
 def test_merge_precedence_local_overrides_global(tmp_path, monkeypatch):
@@ -57,3 +57,25 @@ def test_set_value_creates_and_updates_file(tmp_path):
     text = path.read_text()
     assert "max_diff_bytes = 5000" in text
     assert 'default = "openai"' in text  # earlier key preserved
+
+
+def test_write_defaults_creates_file(tmp_path):
+    path = tmp_path / "config.toml"
+
+    assert write_defaults(path) is True
+
+    text = path.read_text()
+    assert "# commitize configuration" in text
+    assert "[providers.openrouter]" in text
+    assert 'style = "conventional"' in text
+
+
+def test_write_defaults_refuses_existing_unless_forced(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("existing = true\n")
+
+    assert write_defaults(path) is False
+    assert path.read_text() == "existing = true\n"
+
+    assert write_defaults(path, force=True) is True
+    assert "existing" not in path.read_text()
