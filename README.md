@@ -33,6 +33,17 @@ Commit with this message? [y/e/r/n]
 - `r` — regenerate
 - `n` — abort, nothing is committed
 
+If nothing is staged, commitize falls back to analysing your unstaged changes
+(tracked modifications and untracked files) and proposes to stage them and
+commit. Files listed in a `.commitize-ignore` file at the repo root are skipped.
+
+```bash
+# .commitize-ignore (same glob-ish syntax as .gitignore)
+*.log
+build/
+!keep.log
+```
+
 ## Usage
 
 ```bash
@@ -80,6 +91,7 @@ style = "conventional"     # or "plain"
 confirm = true
 max_diff_bytes = 8000
 sign_off = false
+ignore_file = ".commitize-ignore"
 ```
 
 Add your own OpenAI-compatible provider (e.g. a local Ollama server) with:

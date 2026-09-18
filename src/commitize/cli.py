@@ -20,10 +20,13 @@ from commitize.config import (
 )
 from commitize.git import (
     NoStagedChangesError,
+    NoUnstagedChangesError,
     NotAGitRepoError,
     commit as git_commit,
     get_staged_change,
+    get_unstaged_change,
     stage_all,
+    stage_paths,
 )
 from commitize.llm import LLMAuthError, LLMRequestError
 from commitize.messages import CommitMessage, generate_commit_message
@@ -83,16 +86,23 @@ def run_commit_flow(
         stage_all()
 
     max_diff_bytes = int(config.get("commit.max_diff_bytes", 8000))
+    ignore_file = str(config.get("commit.ignore_file", ".commitize-ignore"))
     try:
-        change = get_staged_change(max_diff_bytes=max_diff_bytes)
+        change, needs_staging = _select_change(max_diff_bytes, ignore_file)
     except NotAGitRepoError as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise typer.Exit(1)
-    except NoStagedChangesError as exc:
+    except (NoStagedChangesError, NoUnstagedChangesError) as exc:
         console.print(f"[yellow]{exc}[/]")
         raise typer.Exit(1)
 
-    console.print(Panel(change.stat.strip() or "(no file stat)", title="Staged changes"))
+    title = "Unstaged changes" if needs_staging else "Staged changes"
+    console.print(Panel(change.stat.strip() or "(no file stat)", title=title))
+    if needs_staging:
+        console.print(
+            "[yellow]No staged changes; analysing unstaged files "
+            f"(respecting {ignore_file}).[/]"
+        )
 
     message = _generate(config, change, provider, model)
     if message is None:
@@ -107,11 +117,16 @@ def run_commit_flow(
         if yes:
             choice = "y"
         else:
-            choice = Prompt.ask(
-                "Commit with this message?", choices=["y", "e", "r", "n"], default="y"
+            question = (
+                "Stage these files and commit with this message?"
+                if needs_staging
+                else "Commit with this message?"
             )
+            choice = Prompt.ask(question, choices=["y", "e", "r", "n"], default="y")
 
         if choice == "y":
+            if needs_staging:
+                stage_paths(change.files)
             sign_off = bool(config.get("commit.sign_off", False))
             git_commit(message.subject, message.body, sign_off=sign_off)
             console.print("[green]Committed.[/]")
@@ -132,6 +147,16 @@ def run_commit_flow(
         else:
             console.print("[yellow]Aborted, nothing committed.[/]")
             return
+
+
+def _select_change(max_diff_bytes: int, ignore_file: str):
+    """Prefer staged changes; fall back to analysing unstaged files."""
+    try:
+        return get_staged_change(max_diff_bytes=max_diff_bytes), False
+    except NoStagedChangesError:
+        pass
+    change = get_unstaged_change(max_diff_bytes=max_diff_bytes, ignore_file=ignore_file)
+    return change, True
 
 
 def _generate(

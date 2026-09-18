@@ -4,11 +4,15 @@ import pytest
 
 from commitize.git import (
     NoStagedChangesError,
+    NoUnstagedChangesError,
     NotAGitRepoError,
     commit,
     get_staged_change,
+    get_unstaged_change,
     is_git_repo,
+    stage_paths,
 )
+from commitize.ignore import IgnoreMatcher
 
 
 def _init_repo(path):
@@ -55,3 +59,51 @@ def test_diff_truncation(tmp_path):
     change = get_staged_change(cwd=tmp_path, max_diff_bytes=100)
     assert change.truncated is True
     assert len(change.diff.encode("utf-8")) <= 100
+
+
+def test_staged_change_lists_files(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "hello.txt").write_text("hello\n")
+    subprocess.run(["git", "add", "hello.txt"], cwd=tmp_path, check=True)
+
+    change = get_staged_change(cwd=tmp_path)
+    assert change.files == ["hello.txt"]
+
+
+def test_unstaged_change_includes_tracked_and_untracked(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "tracked.txt").write_text("one\n")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=tmp_path, check=True)
+
+    (tmp_path / "tracked.txt").write_text("one\ntwo\n")
+    (tmp_path / "untracked.txt").write_text("brand new\n")
+
+    change = get_unstaged_change(cwd=tmp_path)
+    assert set(change.files) == {"tracked.txt", "untracked.txt"}
+    assert "two" in change.diff
+    assert "brand new" in change.diff
+
+    stage_paths(change.files, cwd=tmp_path)
+    staged = get_staged_change(cwd=tmp_path)
+    assert set(staged.files) == {"tracked.txt", "untracked.txt"}
+
+
+def test_unstaged_change_respects_ignore(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "keep.txt").write_text("keep\n")
+    (tmp_path / "secret.log").write_text("secret\n")
+
+    matcher = IgnoreMatcher(["*.log"])
+    change = get_unstaged_change(cwd=tmp_path, matcher=matcher)
+
+    assert change.files == ["keep.txt"]
+
+
+def test_unstaged_change_all_ignored_raises(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "secret.log").write_text("secret\n")
+
+    matcher = IgnoreMatcher(["*.log"])
+    with pytest.raises(NoUnstagedChangesError):
+        get_unstaged_change(cwd=tmp_path, matcher=matcher)

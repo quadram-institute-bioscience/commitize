@@ -67,3 +67,61 @@ def test_no_staged_changes_errors(tmp_path, monkeypatch):
     result = runner.invoke(cli.app, ["commit", "--yes"])
 
     assert result.exit_code == 1
+
+
+def test_unstaged_fallback_stages_and_commits(tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=tmp_path, check=True)
+    (tmp_path / "hello.txt").write_text("hello\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    monkeypatch.setattr(
+        cli,
+        "generate_commit_message",
+        lambda client, change, config: CommitMessage(subject="feat: add hello", body=""),
+    )
+
+    result = runner.invoke(cli.app, ["commit", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "Unstaged changes" in result.output
+    log = subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert log.stdout.strip() == "feat: add hello"
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert "hello.txt" in tracked.stdout
+
+
+def test_unstaged_fallback_respects_commitize_ignore(tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=tmp_path, check=True)
+    (tmp_path / "keep.txt").write_text("keep\n")
+    (tmp_path / "secret.log").write_text("secret\n")
+    (tmp_path / ".commitize-ignore").write_text("*.log\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    seen = {}
+
+    def _fake(client, change, config):
+        seen["files"] = change.files
+        return CommitMessage(subject="chore: add keep", body="")
+
+    monkeypatch.setattr(cli, "generate_commit_message", _fake)
+
+    result = runner.invoke(cli.app, ["commit", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["files"] == ["keep.txt"]
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=tmp_path, capture_output=True, text=True, check=True
+    ).stdout
+    assert "keep.txt" in tracked
+    assert "secret.log" not in tracked
+    assert ".commitize-ignore" not in tracked

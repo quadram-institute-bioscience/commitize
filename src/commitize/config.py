@@ -37,6 +37,7 @@ DEFAULTS: dict[str, Any] = {
         "confirm": True,
         "max_diff_bytes": 8000,
         "sign_off": False,
+        "ignore_file": ".commitize-ignore",
     },
 }
 
