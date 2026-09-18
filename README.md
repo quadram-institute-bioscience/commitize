@@ -1,5 +1,7 @@
 # commitize
 
+![commitize logo](commit.svg)
+
 Generate git commit messages from your staged diff using an LLM, review them,
 and commit — all from one command. OpenRouter works out of the box; any other
 OpenAI-compatible API (OpenAI, Groq, local Ollama, etc.) can be configured too.
