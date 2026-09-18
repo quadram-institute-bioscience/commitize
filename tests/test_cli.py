@@ -58,6 +58,26 @@ def test_dry_run_does_not_commit(tmp_path, monkeypatch):
     assert log.returncode != 0  # no commits were ever made
 
 
+def test_verbose_mode_reports_model_and_llm_progress(tmp_path, monkeypatch):
+    _init_repo_with_staged_change(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(cli, "global_config_path", lambda: tmp_path / "unused_global.toml")
+
+    monkeypatch.setattr(
+        cli,
+        "generate_commit_message",
+        lambda client, change, config: CommitMessage(subject="feat: add hello", body=""),
+    )
+
+    result = runner.invoke(cli.app, ["commit", "--dry-run", "--verbose"])
+
+    assert result.exit_code == 0, result.output
+    assert "Using provider openrouter with model openai/gpt-4o-mini" in result.output
+    assert "Requesting commit message from LLM..." in result.output
+    assert "LLM response received." in result.output
+
+
 def test_no_staged_changes_errors(tmp_path, monkeypatch):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=tmp_path, check=True)

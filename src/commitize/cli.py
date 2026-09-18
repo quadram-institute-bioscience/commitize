@@ -29,7 +29,7 @@ from commitize.git import (
     stage_all,
     stage_paths,
 )
-from commitize.llm import LLMAuthError, LLMRequestError
+from commitize.llm import LLMAuthError, LLMRequestError, OpenAICompatibleClient
 from commitize.messages import CommitMessage, generate_commit_message
 from commitize.providers import build_client, list_providers
 
@@ -58,12 +58,20 @@ def main(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     stage_all_: bool = typer.Option(False, "--all", "-a", help="Stage tracked modifications first (like `git commit -a`)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the generated message without committing."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
     version: bool = typer.Option(False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."),
 ) -> None:
     if ctx.invoked_subcommand is None:
-        run_commit_flow(yes=yes, stage_all_=stage_all_, dry_run=dry_run, provider=provider, model=model)
+        run_commit_flow(
+            yes=yes,
+            stage_all_=stage_all_,
+            dry_run=dry_run,
+            verbose=verbose,
+            provider=provider,
+            model=model,
+        )
 
 
 @app.command("commit")
@@ -71,15 +79,28 @@ def commit_cmd(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     stage_all_: bool = typer.Option(False, "--all", "-a", help="Stage tracked modifications first (like `git commit -a`)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the generated message without committing."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
 ) -> None:
     """Generate a commit message from the staged diff and commit."""
-    run_commit_flow(yes=yes, stage_all_=stage_all_, dry_run=dry_run, provider=provider, model=model)
+    run_commit_flow(
+        yes=yes,
+        stage_all_=stage_all_,
+        dry_run=dry_run,
+        verbose=verbose,
+        provider=provider,
+        model=model,
+    )
 
 
 def run_commit_flow(
-    yes: bool, stage_all_: bool, dry_run: bool, provider: Optional[str], model: Optional[str]
+    yes: bool,
+    stage_all_: bool,
+    dry_run: bool,
+    verbose: bool,
+    provider: Optional[str],
+    model: Optional[str],
 ) -> None:
     config = Config.load()
 
@@ -105,7 +126,11 @@ def run_commit_flow(
             f"(respecting {ignore_file}).[/]"
         )
 
-    message = _generate(config, change, provider, model)
+    client = _build_client(config, provider, model, verbose)
+    if client is None:
+        raise typer.Exit(1)
+
+    message = _generate(client, config, change, verbose)
     if message is None:
         raise typer.Exit(1)
 
@@ -141,7 +166,7 @@ def run_commit_flow(
             )
             continue
         elif choice == "r":
-            message = _generate(config, change, provider, model)
+            message = _generate(client, config, change, verbose)
             if message is None:
                 raise typer.Exit(1)
             continue
@@ -160,15 +185,37 @@ def _select_change(max_diff_bytes: int, ignore_file: str):
     return change, True
 
 
-def _generate(
-    config: Config, change, provider: Optional[str], model: Optional[str]
-) -> Optional[CommitMessage]:
+def _build_client(
+    config: Config, provider: Optional[str], model: Optional[str], verbose: bool
+) -> Optional[OpenAICompatibleClient]:
+    provider_name = provider or config.provider_name()
     try:
         client = build_client(config, provider_name=provider, model_override=model)
-        return generate_commit_message(client, change, config)
-    except (LLMAuthError, LLMRequestError, KeyError) as exc:
+    except KeyError as exc:
         console.print(f"[red]Error generating message:[/] {exc}")
         return None
+
+    if verbose:
+        console.print(
+            "[dim]Using provider "
+            f"{provider_name} with model {client.model} ({client.base_url}).[/]"
+        )
+    return client
+
+
+def _generate(
+    client: OpenAICompatibleClient, config: Config, change, verbose: bool
+) -> Optional[CommitMessage]:
+    if verbose:
+        console.print("[dim]Requesting commit message from LLM...[/]")
+    try:
+        message = generate_commit_message(client, change, config)
+    except (LLMAuthError, LLMRequestError) as exc:
+        console.print(f"[red]Error generating message:[/] {exc}")
+        return None
+    if verbose:
+        console.print("[dim]LLM response received.[/]")
+    return message
 
 
 def _edit_in_editor(initial_text: str) -> str:
