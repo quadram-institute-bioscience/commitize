@@ -54,6 +54,14 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def _help_callback(ctx: typer.Context, param: typer.Option, value: bool) -> None:
+    if value:
+        ctx.get_help()
+        raise typer.Exit()
+
+
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -64,6 +72,7 @@ def main(
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
     version: bool = typer.Option(False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     if ctx.invoked_subcommand is None:
         run_commit_flow(
@@ -84,6 +93,7 @@ def commit_cmd(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Generate a commit message from the staged diff and commit."""
     run_commit_flow(
@@ -107,6 +117,7 @@ def release_cmd(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Generate a changelog from commits since the last release."""
     config = Config.load()
@@ -293,7 +304,7 @@ def _config_path(is_global: bool) -> Path:
 
 
 @config_app.command("show")
-def config_show() -> None:
+def config_show(help_: bool = typer.Option(None, "--help", "-h", is_eager=True, expose_value=False, help="Show this message and exit.")) -> None:
     """Print the effective merged configuration with provenance."""
     config = Config.load()
     for key, value in config.iter_leaves():
@@ -304,7 +315,7 @@ def config_show() -> None:
 
 
 @config_app.command("get")
-def config_get(key: str) -> None:
+def config_get(key: str, help_: bool = typer.Option(None, "--help", "-h", is_eager=True, expose_value=False, help="Show this message and exit.")) -> None:
     """Print the effective value of a dotted config key."""
     config = Config.load()
     value = config.get(key)
@@ -320,6 +331,7 @@ def config_set(
     value: str,
     global_: bool = typer.Option(False, "--global", help="Write to the global config (default)."),
     local: bool = typer.Option(False, "--local", help="Write to the repo-local .commitize.toml instead."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Set a dotted config key, e.g. `commitize config set providers.openrouter.model openai/gpt-4o`."""
     is_global = global_ or not local
@@ -333,6 +345,7 @@ def config_init(
     global_: bool = typer.Option(False, "--global", help="Initialize the global config (default)."),
     local: bool = typer.Option(False, "--local", help="Initialize the repo-local .commitize.toml instead."),
     force: bool = typer.Option(False, "--force", help="Overwrite the file if it already exists."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Write the default configuration to the config file, ready to edit."""
     is_global = global_ or not local
@@ -349,6 +362,7 @@ def config_init(
 def config_edit(
     global_: bool = typer.Option(False, "--global", help="Edit the global config (default)."),
     local: bool = typer.Option(False, "--local", help="Edit the repo-local .commitize.toml instead."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Open the config file in $EDITOR."""
     is_global = global_ or not local
@@ -364,6 +378,7 @@ def config_edit(
 def config_path(
     global_: bool = typer.Option(False, "--global", help="Show the global config path (default)."),
     local: bool = typer.Option(False, "--local", help="Show the repo-local .commitize.toml path instead."),
+    help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Print the config file path."""
     is_global = global_ or not local
@@ -374,7 +389,7 @@ def config_path(
 
 
 @providers_app.command("list")
-def providers_list() -> None:
+def providers_list(help_: bool = typer.Option(None, "--help", "-h", is_eager=True, expose_value=False, help="Show this message and exit.")) -> None:
     """List configured provider presets."""
     config = Config.load()
     for p in list_providers(config):
