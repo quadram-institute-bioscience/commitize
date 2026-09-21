@@ -1,6 +1,6 @@
 # commitize
 
-<img src="commit.svg" style="float:right; width:264px; margin-left:10px;" />
+<img src="commit.svg" align="right" width="264" hspace="10" />
 
 Generate git commit messages from your staged diff using an LLM, review them,
 and commit — all from one command. OpenRouter works out of the box; any other
