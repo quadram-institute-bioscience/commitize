@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>commitize</title>
+  <meta name="description" content="Generate git commit messages from your diff with an LLM, review them, and commit, all from one command.">
+  <link rel="icon" href="commit.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --indigo-ink: #271172ff;
+      --golden-orange: #EF9501ff;
+      --light-gray: #f3f2f7;
+      --mid-gray: #d9d7e3;
+      --text: #000000;
+      --muted: #4a4a55;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; }
+
+    body {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #ffffff;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      background: var(--indigo-ink);
+      color: #ffffff;
+      padding: 72px 0 88px;
+      text-align: center;
+    }
+
+    .hero img {
+      width: 168px;
+      height: 168px;
+      display: block;
+      margin: 0 auto 28px;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.6rem, 7vw, 4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 0 0 12px;
+      line-height: 1.05;
+    }
+
+    .hero h1 span { color: var(--golden-orange); }
+
+    .hero p.tagline {
+      font-size: clamp(1.05rem, 2.4vw, 1.3rem);
+      max-width: 36em;
+      margin: 0 auto 40px;
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .btn-repo {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--golden-orange);
+      color: var(--indigo-ink);
+      font-size: clamp(1.1rem, 2.6vw, 1.35rem);
+      font-weight: 700;
+      text-decoration: none;
+      padding: 20px 40px;
+      border-radius: 14px;
+      box-shadow: 0 8px 0 rgba(0, 0, 0, 0.25);
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .btn-repo:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 0 rgba(0, 0, 0, 0.25);
+    }
+
+    .btn-repo:active {
+      transform: translateY(4px);
+      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
+    }
+
+    .btn-repo:focus-visible {
+      outline: 3px solid #ffffff;
+      outline-offset: 4px;
+    }
+
+    .btn-repo svg { width: 28px; height: 28px; flex-shrink: 0; }
+
+    .hero .sub {
+      margin-top: 22px;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.6);
+      word-break: break-all;
+    }
+
+    /* ---------- Sections ---------- */
+    section { padding: 72px 0; }
+
+    section.alt { background: var(--light-gray); }
+
+    h2 {
+      font-size: 1.9rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--indigo-ink);
+      margin: 0 0 8px;
+    }
+
+    h2::after {
+      content: "";
+      display: block;
+      width: 48px;
+      height: 5px;
+      border-radius: 3px;
+      background: var(--golden-orange);
+      margin-top: 12px;
+    }
+
+    .lead {
+      color: var(--muted);
+      margin: 16px 0 28px;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.9em;
+      background: var(--light-gray);
+      color: var(--indigo-ink);
+      padding: 2px 6px;
+      border-radius: 5px;
+    }
+
+    section.alt code { background: #ffffff; }
+
+    /* ---------- Code blocks ---------- */
+    .code {
+      position: relative;
+      background: #16093f;
+      color: #ffffff;
+      border-radius: 12px;
+      margin: 0 0 16px;
+      overflow: hidden;
+    }
+
+    .code .label {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--golden-orange);
+      padding: 14px 20px 0;
+    }
+
+    .code pre {
+      margin: 0;
+      padding: 12px 20px 18px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+
+    .code .c { color: rgba(255, 255, 255, 0.5); }
+    .code .p { color: var(--golden-orange); user-select: none; }
+
+    .copy {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font: 600 0.75rem/1 "Inter", sans-serif;
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    .copy:hover { background: rgba(255, 255, 255, 0.2); }
+    .copy.done { background: var(--golden-orange); color: var(--indigo-ink); border-color: var(--golden-orange); }
+
+    .note {
+      font-size: 0.95rem;
+      color: var(--muted);
+      margin: 20px 0 0;
+    }
+
+    /* ---------- Quick start steps ---------- */
+    .steps {
+      list-style: none;
+      padding: 0;
+      margin: 28px 0 0;
+      counter-reset: step;
+    }
+
+    .steps > li {
+      position: relative;
+      padding-left: 60px;
+      margin-bottom: 36px;
+      counter-increment: step;
+    }
+
+    .steps > li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: -2px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--indigo-ink);
+      color: #ffffff;
+      font-weight: 800;
+      display: grid;
+      place-items: center;
+    }
+
+    .steps h3 {
+      margin: 4px 0 6px;
+      font-size: 1.15rem;
+    }
+
+    .steps p { margin: 0 0 14px; }
+
+    .keys {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .keys li {
+      background: #ffffff;
+      border: 1px solid var(--mid-gray);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.95rem;
+    }
+
+    .keys kbd {
+      font-family: var(--mono);
+      font-weight: 600;
+      background: var(--golden-orange);
+      color: var(--indigo-ink);
+      border-radius: 6px;
+      min-width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    /* ---------- Footer ---------- */
+    footer {
+      background: var(--indigo-ink);
+      color: rgba(255, 255, 255, 0.75);
+      padding: 36px 0;
+      font-size: 0.9rem;
+      text-align: center;
+    }
+
+    footer a { color: var(--golden-orange); }
+
+    @media (max-width: 560px) {
+      .wrap { padding: 0 16px; }
+      .hero { padding: 56px 0 64px; }
+      .hero img { width: 132px; height: 132px; }
+      .btn-repo { padding: 18px 26px; }
+      section { padding: 56px 0; }
+      .steps > li { padding-left: 0; padding-top: 52px; }
+      .code pre { font-size: 0.82rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="hero">
+    <div class="wrap">
+      <img src="commit.svg" alt="commitize logo">
+      <h1>commit<span>ize</span></h1>
+      <p class="tagline">Generate git commit messages from your diff with an LLM, review them, and commit, all from one command.</p>
+      <a class="btn-repo" href="https://github.com/quadram-institute-bioscience/commitize">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <div class="sub">github.com/quadram-institute-bioscience/commitize</div>
+    </div>
+  </header>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Installation</h2>
+      <p class="lead">Install straight from GitHub, no clone needed. Requires Python 3.10 or newer.</p>
+
+      <div class="code">
+        <div class="label">uv (recommended)</div>
+        <button class="copy" type="button">Copy</button>
+        <pre><code class="raw">uv tool install git+https://github.com/quadram-institute-bioscience/commitize</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="label">pipx</div>
+        <button class="copy" type="button">Copy</button>
+        <pre><code class="raw">pipx install git+https://github.com/quadram-institute-bioscience/commitize</code></pre>
+      </div>
+
+      <p class="note">To try it once without installing: <code>uvx --from git+https://github.com/quadram-institute-bioscience/commitize commitize</code>. To upgrade later: <code>uv tool upgrade commitize</code>.</p>
+    </div>
+  </section>
+
+  <section id="quick-start" class="alt">
+    <div class="wrap">
+      <h2>Quick start</h2>
+      <p class="lead">OpenRouter works out of the box. Any other OpenAI-compatible API (OpenAI, Groq, a local Ollama server) can be configured too.</p>
+
+      <ol class="steps">
+        <li>
+          <h3>Set your API key</h3>
+          <p>Get a key from OpenRouter and export it in your shell.</p>
+          <div class="code">
+            <button class="copy" type="button">Copy</button>
+            <pre><code class="raw">export OPENROUTER_API_KEY=sk-or-...</code></pre>
+          </div>
+        </li>
+        <li>
+          <h3>Stage your changes and run commitize</h3>
+          <p>Nothing staged? commitize falls back to your unstaged changes and offers to stage them for you.</p>
+          <div class="code">
+            <button class="copy" type="button">Copy</button>
+            <pre><code class="raw">git add -p
+commitize</code></pre>
+          </div>
+        </li>
+        <li>
+          <h3>Review and commit</h3>
+          <p>You'll see the staged file summary and the generated message, then a prompt:</p>
+          <div class="code">
+            <pre><code><span class="p">Commit with this message?</span> [y/e/r/n]</code></pre>
+          </div>
+          <ul class="keys">
+            <li><kbd>y</kbd> Commit as-is</li>
+            <li><kbd>e</kbd> Edit in <code>$EDITOR</code></li>
+            <li><kbd>r</kbd> Regenerate</li>
+            <li><kbd>n</kbd> Abort</li>
+          </ul>
+        </li>
+        <li>
+          <h3>Go further</h3>
+          <p>A few options worth knowing:</p>
+          <div class="code">
+            <pre><code>commitize --dry-run            <span class="c"># print the message, don't commit</span>
+commitize --summary "Fix typo" <span class="c"># tell the LLM what the main change is</span>
+commitize --model gpt-4o       <span class="c"># override the model for this run</span>
+commitize release -o CHANGELOG.md  <span class="c"># changelog since the last release</span>
+commitize config show          <span class="c"># effective config and where it came from</span></code></pre>
+          </div>
+        </li>
+      </ol>
+
+      <p class="note">Add a <code>.commitize-context.md</code> at your repo root to tell the model about your scopes and conventions. See the <a href="https://github.com/quadram-institute-bioscience/commitize#readme" style="color: var(--indigo-ink); font-weight: 600;">README</a> for configuration and custom providers.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      commitize is MIT licensed · developed at the <a href="https://quadram.ac.uk">Quadram Institute</a> · <a href="https://github.com/quadram-institute-bioscience/commitize">Source on GitHub</a>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll(".copy").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var text = btn.parentElement.querySelector("code").innerText;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = "Copied";
+          btn.classList.add("done");
+          setTimeout(function () {
+            btn.textContent = "Copy";
+            btn.classList.remove("done");
+          }, 1500);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
