@@ -62,3 +62,44 @@ def test_chat_server_error_raises_request_error():
         assert False, "expected LLMRequestError"
     except LLMRequestError:
         pass
+
+
+@respx.mock
+def test_usage_and_cost_accumulate_across_calls():
+    respx.post("https://x/api/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={
+                "choices": [{"message": {"content": "a"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 10, "cost": 0.0002},
+            }),
+            httpx.Response(200, json={
+                "choices": [{"message": {"content": "b"}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 5, "cost": 0.0001},
+            }),
+        ]
+    )
+    client = OpenAICompatibleClient(base_url="https://x/api", api_key="k", model="m")
+
+    client.chat(system="s", user="u")
+    client.chat(system="s", user="u")
+
+    assert client.usage.requests == 2
+    assert client.usage.prompt_tokens == 150
+    assert client.usage.completion_tokens == 15
+    assert abs(client.usage.cost - 0.0003) < 1e-12
+
+
+@respx.mock
+def test_cost_is_none_when_provider_does_not_report_it():
+    respx.post("https://x/api/chat/completions").mock(
+        return_value=httpx.Response(200, json={
+            "choices": [{"message": {"content": "a"}}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+        })
+    )
+    client = OpenAICompatibleClient(base_url="https://x/api", api_key="k", model="m")
+
+    client.chat(system="s", user="u")
+
+    assert client.usage.requests == 1
+    assert client.usage.cost is None

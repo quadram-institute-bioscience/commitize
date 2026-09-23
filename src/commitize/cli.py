@@ -19,6 +19,7 @@ from commitize.config import (
     set_value,
     write_defaults,
 )
+from commitize.context import RepoContext, load_repo_context
 from commitize.git import (
     NoCommitsError,
     NoStagedChangesError,
@@ -46,6 +47,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(providers_app, name="providers")
 
 console = Console()
+err_console = Console(stderr=True)  # diagnostics, kept off stdout
 
 
 def _version_callback(value: bool) -> None:
@@ -71,6 +73,9 @@ def main(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
+    summary: Optional[str] = typer.Option(
+        None, "--summary", help="The most important thing this change does; the message is built around it."
+    ),
     version: bool = typer.Option(False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."),
     help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
@@ -82,6 +87,7 @@ def main(
             verbose=verbose,
             provider=provider,
             model=model,
+            summary=summary,
         )
 
 
@@ -93,6 +99,9 @@ def commit_cmd(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print provider/model selection and LLM call progress."),
     provider: Optional[str] = typer.Option(None, "--provider", help="Override the configured provider."),
     model: Optional[str] = typer.Option(None, "--model", help="Override the configured model."),
+    summary: Optional[str] = typer.Option(
+        None, "--summary", help="The most important thing this change does; the message is built around it."
+    ),
     help_: bool = typer.Option(None, "--help", "-h", callback=_help_callback, is_eager=True, help="Show this message and exit."),
 ) -> None:
     """Generate a commit message from the staged diff and commit."""
@@ -103,6 +112,7 @@ def commit_cmd(
         verbose=verbose,
         provider=provider,
         model=model,
+        summary=summary,
     )
 
 
@@ -135,24 +145,27 @@ def release_cmd(
     if client is None:
         raise typer.Exit(1)
 
-    existing_text = output.read_text() if output is not None and output.exists() else None
-
-    if verbose:
-        console.print("[dim]Requesting changelog from LLM...[/]")
     try:
-        changelog = generate_changelog(client, commits, existing_text=existing_text)
-    except (LLMAuthError, LLMRequestError) as exc:
-        console.print(f"[red]Error generating changelog:[/] {exc}")
-        raise typer.Exit(1)
-    if verbose:
-        console.print("[dim]LLM response received.[/]")
+        existing_text = output.read_text() if output is not None and output.exists() else None
 
-    if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(changelog.rstrip() + "\n")
-        console.print(f"[green]Wrote changelog to {output}[/]")
-    else:
-        console.print(changelog)
+        if verbose:
+            console.print("[dim]Requesting changelog from LLM...[/]")
+        try:
+            changelog = generate_changelog(client, commits, existing_text=existing_text)
+        except (LLMAuthError, LLMRequestError) as exc:
+            console.print(f"[red]Error generating changelog:[/] {exc}")
+            raise typer.Exit(1)
+        if verbose:
+            console.print("[dim]LLM response received.[/]")
+
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(changelog.rstrip() + "\n")
+            console.print(f"[green]Wrote changelog to {output}[/]")
+        else:
+            console.print(changelog)
+    finally:
+        _report_usage(client, verbose)
 
 
 def run_commit_flow(
@@ -162,6 +175,7 @@ def run_commit_flow(
     verbose: bool,
     provider: Optional[str],
     model: Optional[str],
+    summary: Optional[str] = None,
 ) -> None:
     config = Config.load()
 
@@ -191,49 +205,53 @@ def run_commit_flow(
     if client is None:
         raise typer.Exit(1)
 
-    message = _generate(client, config, change, verbose)
-    if message is None:
-        raise typer.Exit(1)
+    try:
+        context = _load_context(config, verbose)
+        message = _generate(client, config, change, verbose, summary, context)
+        if message is None:
+            raise typer.Exit(1)
 
-    while True:
-        console.print(Panel(message.full_text, title="Generated commit message", style="cyan"))
+        while True:
+            console.print(Panel(message.full_text, title="Generated commit message", style="cyan"))
 
-        if dry_run:
-            return
+            if dry_run:
+                return
 
-        if yes:
-            choice = "y"
-        else:
-            question = (
-                "Stage these files and commit with this message?"
-                if needs_staging
-                else "Commit with this message?"
-            )
-            choice = Prompt.ask(question, choices=["y", "e", "r", "n"], default="y")
+            if yes:
+                choice = "y"
+            else:
+                question = (
+                    "Stage these files and commit with this message?"
+                    if needs_staging
+                    else "Commit with this message?"
+                )
+                choice = Prompt.ask(question, choices=["y", "e", "r", "n"], default="y")
 
-        if choice == "y":
-            if needs_staging:
-                stage_paths(change.files)
-            sign_off = bool(config.get("commit.sign_off", False))
-            git_commit(message.subject, message.body, sign_off=sign_off)
-            console.print("[green]Committed.[/]")
-            return
-        elif choice == "e":
-            edited = _edit_in_editor(message.full_text)
-            lines = edited.splitlines()
-            message = CommitMessage(
-                subject=lines[0].strip() if lines else "",
-                body="\n".join(lines[1:]).strip(),
-            )
-            continue
-        elif choice == "r":
-            message = _generate(client, config, change, verbose)
-            if message is None:
-                raise typer.Exit(1)
-            continue
-        else:
-            console.print("[yellow]Aborted, nothing committed.[/]")
-            return
+            if choice == "y":
+                if needs_staging:
+                    stage_paths(change.files)
+                sign_off = bool(config.get("commit.sign_off", False))
+                git_commit(message.subject, message.body, sign_off=sign_off)
+                console.print("[green]Committed.[/]")
+                return
+            elif choice == "e":
+                edited = _edit_in_editor(message.full_text)
+                lines = edited.splitlines()
+                message = CommitMessage(
+                    subject=lines[0].strip() if lines else "",
+                    body="\n".join(lines[1:]).strip(),
+                )
+                continue
+            elif choice == "r":
+                message = _generate(client, config, change, verbose, summary, context)
+                if message is None:
+                    raise typer.Exit(1)
+                continue
+            else:
+                console.print("[yellow]Aborted, nothing committed.[/]")
+                return
+    finally:
+        _report_usage(client, verbose)
 
 
 def _select_change(max_diff_bytes: int, ignore_file: str):
@@ -264,13 +282,55 @@ def _build_client(
     return client
 
 
+def _load_context(config: Config, verbose: bool) -> RepoContext:
+    max_bytes = int(config.get("commit.max_context_bytes", 4000))
+    context_file = str(config.get("commit.context_file", ".commitize-context.md"))
+    context = load_repo_context(
+        context_file=context_file,
+        max_context_bytes=max_bytes,
+        recent_commits=int(config.get("commit.recent_commits", 15)),
+    )
+    if context.guidance_file:
+        err_console.print(f"[dim]Using repo guidance from {context.guidance_file}.[/]")
+    else:
+        err_console.print(
+            f"[dim]Tip: add a {context_file} at the repo root to tell the model "
+            "your scopes and commit conventions.[/]"
+        )
+    if context.guidance_truncated:
+        err_console.print(
+            f"[yellow]{context.guidance_file} is larger than {max_bytes} bytes; "
+            "only the start is sent (see commit.max_context_bytes).[/]"
+        )
+    if verbose:
+        console.print(f"[dim]Including {len(context.recent_commits)} recent commit subjects.[/]")
+    return context
+
+
+def _report_usage(client: OpenAICompatibleClient, verbose: bool) -> None:
+    usage = client.usage
+    if not verbose or usage.requests == 0:
+        return
+    tokens = f"{usage.prompt_tokens:,} prompt + {usage.completion_tokens:,} completion tokens"
+    requests = f"{usage.requests} request{'s' if usage.requests != 1 else ''}"
+    if usage.cost is None:
+        console.print(f"[dim]Session usage: {requests}, {tokens}.[/]")
+    else:
+        console.print(f"[dim]Session cost: ${usage.cost:.6f} ({requests}, {tokens}).[/]")
+
+
 def _generate(
-    client: OpenAICompatibleClient, config: Config, change, verbose: bool
+    client: OpenAICompatibleClient,
+    config: Config,
+    change,
+    verbose: bool,
+    summary: Optional[str] = None,
+    context: Optional[RepoContext] = None,
 ) -> Optional[CommitMessage]:
     if verbose:
         console.print("[dim]Requesting commit message from LLM...[/]")
     try:
-        message = generate_commit_message(client, change, config)
+        message = generate_commit_message(client, change, config, summary=summary, context=context)
     except (LLMAuthError, LLMRequestError) as exc:
         console.print(f"[red]Error generating message:[/] {exc}")
         return None

@@ -9,6 +9,7 @@ from commitize.git import (
     NotAGitRepoError,
     commit,
     get_commits_since_last_release,
+    get_recent_commit_subjects,
     get_staged_change,
     get_unstaged_change,
     is_git_repo,
@@ -149,3 +150,17 @@ def test_commits_since_last_release_respects_tag(tmp_path):
 
     commits = get_commits_since_last_release(cwd=tmp_path)
     assert [c.subject for c in commits] == ["feat: add b"]
+
+
+def test_recent_commit_subjects(tmp_path):
+    _init_repo(tmp_path)
+    assert get_recent_commit_subjects(tmp_path) == []  # no commits yet
+
+    for name in ("a", "b", "c"):
+        (tmp_path / name).write_text(name)
+        subprocess.run(["git", "add", name], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-qm", f"feat: add {name}"], cwd=tmp_path, check=True)
+
+    assert get_recent_commit_subjects(tmp_path) == ["feat: add c", "feat: add b", "feat: add a"]
+    assert get_recent_commit_subjects(tmp_path, limit=2) == ["feat: add c", "feat: add b"]
+    assert get_recent_commit_subjects(tmp_path, limit=0) == []

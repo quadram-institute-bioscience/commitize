@@ -174,6 +174,17 @@ def get_unstaged_change(
     )
 
 
+def get_recent_commit_subjects(cwd: Path | None = None, limit: int = 15) -> list[str]:
+    """Subjects of the latest non-merge commits, newest first ([] if none)."""
+    if limit <= 0:
+        return []
+    try:
+        out = _run(["log", f"-n{limit}", "--no-merges", "--pretty=format:%s"], cwd=cwd)
+    except RuntimeError:  # e.g. a repo with no commits yet
+        return []
+    return [line for line in out.splitlines() if line.strip()]
+
+
 _COMMIT_SEPARATOR = "\x1e"
 _COMMIT_FIELD = "\x1f"
 

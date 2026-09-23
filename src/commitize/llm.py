@@ -16,12 +16,30 @@ class LLMRequestError(RuntimeError):
 
 
 @dataclass
+class Usage:
+    """Token and cost totals across every successful call made by one client."""
+
+    requests: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost: float | None = None  # only reported by some providers (OpenRouter, in USD credits)
+
+    def add(self, usage: dict) -> None:
+        self.requests += 1
+        self.prompt_tokens += int(usage.get("prompt_tokens") or 0)
+        self.completion_tokens += int(usage.get("completion_tokens") or 0)
+        if usage.get("cost") is not None:
+            self.cost = (self.cost or 0.0) + float(usage["cost"])
+
+
+@dataclass
 class OpenAICompatibleClient:
     base_url: str
     api_key: str | None
     model: str
     extra_headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
+    usage: Usage = field(default_factory=Usage)
 
     def chat(self, system: str, user: str) -> str:
         if not self.api_key:
@@ -59,6 +77,8 @@ class OpenAICompatibleClient:
 
         data = response.json()
         try:
-            return data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMRequestError(f"Unexpected response shape from {self.base_url}: {data}") from exc
+        self.usage.add(data.get("usage") or {})
+        return content

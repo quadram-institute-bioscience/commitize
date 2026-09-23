@@ -24,7 +24,7 @@ DEFAULTS: dict[str, Any] = {
         "openrouter": {
             "base_url": "https://openrouter.ai/api/v1",
             "api_key_env": "OPENROUTER_API_KEY",
-            "model": "openai/gpt-4o-mini",
+            "model": "deepseek/deepseek-v4-flash",
         },
         "openai": {
             "base_url": "https://api.openai.com/v1",
@@ -38,6 +38,9 @@ DEFAULTS: dict[str, Any] = {
         "max_diff_bytes": 8000,
         "sign_off": False,
         "ignore_file": ".commitize-ignore",
+        "context_file": ".commitize-context.md",
+        "max_context_bytes": 4000,
+        "recent_commits": 15,
     },
 }
 

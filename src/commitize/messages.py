@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from commitize.config import Config
+from commitize.context import RepoContext
 from commitize.git import CommitInfo, StagedChange
 from commitize.llm import OpenAICompatibleClient
 from commitize.prompt import (
@@ -45,11 +46,15 @@ def parse_message(raw: str) -> CommitMessage:
 
 
 def generate_commit_message(
-    client: OpenAICompatibleClient, change: StagedChange, config: Config
+    client: OpenAICompatibleClient,
+    change: StagedChange,
+    config: Config,
+    summary: str | None = None,
+    context: RepoContext | None = None,
 ) -> CommitMessage:
     style = config.get("commit.style", "conventional")
     system = build_system_prompt(style)
-    user = build_user_prompt(change)
+    user = build_user_prompt(change, summary, context)
     raw = client.chat(system=system, user=user)
     return parse_message(raw)
 

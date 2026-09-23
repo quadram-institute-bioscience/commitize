@@ -1,11 +1,19 @@
 import subprocess
 
+import pytest
 from typer.testing import CliRunner
 
 from commitize import cli
+from commitize import config as config_mod
 from commitize.messages import CommitMessage
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_global_config(tmp_path, monkeypatch):
+    """Keep Config.load() from reading the developer's real global config."""
+    monkeypatch.setattr(config_mod, "global_config_path", lambda: tmp_path / "isolated_global.toml")
 
 
 def _init_repo_with_staged_change(path):
@@ -25,7 +33,7 @@ def test_commit_flow_with_yes_flag(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli,
         "generate_commit_message",
-        lambda client, change, config: CommitMessage(subject="feat: add hello", body=""),
+        lambda client, change, config, **_: CommitMessage(subject="feat: add hello", body=""),
     )
 
     result = runner.invoke(cli.app, ["commit", "--yes"])
@@ -45,7 +53,7 @@ def test_dry_run_does_not_commit(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli,
         "generate_commit_message",
-        lambda client, change, config: CommitMessage(subject="feat: add hello", body=""),
+        lambda client, change, config, **_: CommitMessage(subject="feat: add hello", body=""),
     )
 
     result = runner.invoke(cli.app, ["commit", "--dry-run"])
@@ -67,13 +75,13 @@ def test_verbose_mode_reports_model_and_llm_progress(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli,
         "generate_commit_message",
-        lambda client, change, config: CommitMessage(subject="feat: add hello", body=""),
+        lambda client, change, config, **_: CommitMessage(subject="feat: add hello", body=""),
     )
 
     result = runner.invoke(cli.app, ["commit", "--dry-run", "--verbose"])
 
     assert result.exit_code == 0, result.output
-    assert "Using provider openrouter with model openai/gpt-4o-mini" in result.output
+    assert "Using provider openrouter with model deepseek/deepseek-v4-flash" in result.output
     assert "Requesting commit message from LLM..." in result.output
     assert "LLM response received." in result.output
 
@@ -100,7 +108,7 @@ def test_unstaged_fallback_stages_and_commits(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cli,
         "generate_commit_message",
-        lambda client, change, config: CommitMessage(subject="feat: add hello", body=""),
+        lambda client, change, config, **_: CommitMessage(subject="feat: add hello", body=""),
     )
 
     result = runner.invoke(cli.app, ["commit", "--yes"])
@@ -129,7 +137,7 @@ def test_unstaged_fallback_respects_commitize_ignore(tmp_path, monkeypatch):
 
     seen = {}
 
-    def _fake(client, change, config):
+    def _fake(client, change, config, **kwargs):
         seen["files"] = change.files
         return CommitMessage(subject="chore: add keep", body="")
 
@@ -237,3 +245,100 @@ def test_release_no_commits_errors(tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert "No commits" in result.output
+
+
+def test_summary_flag_is_passed_to_generator(tmp_path, monkeypatch):
+    _init_repo_with_staged_change(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    seen = {}
+
+    def _fake(client, change, config, **kwargs):
+        seen["summary"] = kwargs.get("summary")
+        return CommitMessage(subject="refactor: remove dead code", body="")
+
+    monkeypatch.setattr(cli, "generate_commit_message", _fake)
+
+    result = runner.invoke(cli.app, ["commit", "--dry-run", "--summary", "Removed dead code"])
+    assert result.exit_code == 0, result.output
+    assert seen["summary"] == "Removed dead code"
+
+    result = runner.invoke(cli.app, ["--dry-run", "--summary", "Removed dead code"])
+    assert result.exit_code == 0, result.output
+
+
+def test_repo_context_is_passed_to_generator(tmp_path, monkeypatch):
+    _init_repo_with_commit(tmp_path)
+    (tmp_path / ".commitize-context.md").write_text("Scopes: hello.\n")
+    (tmp_path / "hello.txt").write_text("hello again\n")
+    subprocess.run(["git", "add", "hello.txt"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    seen = {}
+
+    def _fake(client, change, config, **kwargs):
+        seen["context"] = kwargs.get("context")
+        return CommitMessage(subject="feat(hello): update", body="")
+
+    monkeypatch.setattr(cli, "generate_commit_message", _fake)
+
+    result = runner.invoke(cli.app, ["commit", "--dry-run", "--verbose"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["context"].guidance == "Scopes: hello."
+    assert seen["context"].recent_commits == ["feat: add hello"]
+    assert "Using repo guidance from .commitize-context.md" in result.stderr
+    assert "Using repo guidance" not in result.stdout
+    assert "Including 1 recent commit subjects" in result.output
+
+
+def test_missing_context_file_suggests_adding_one(tmp_path, monkeypatch):
+    _init_repo_with_staged_change(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        cli,
+        "generate_commit_message",
+        lambda client, change, config, **_: CommitMessage(subject="feat: add hello", body=""),
+    )
+
+    result = runner.invoke(cli.app, ["commit", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Tip: add a .commitize-context.md" in result.stderr
+    assert "Tip:" not in result.stdout
+
+
+def _fake_generate_with_usage(client, change, config, **_):
+    client.usage.add({"prompt_tokens": 1200, "completion_tokens": 30, "cost": 0.000123})
+    return CommitMessage(subject="feat: add hello", body="")
+
+
+def test_verbose_reports_session_cost(tmp_path, monkeypatch):
+    _init_repo_with_staged_change(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(cli, "generate_commit_message", _fake_generate_with_usage)
+
+    result = runner.invoke(cli.app, ["commit", "--dry-run", "--verbose"])
+    assert result.exit_code == 0, result.output
+    assert "Session cost: $0.000123 (1 request, 1,200 prompt + 30 completion tokens)" in result.output
+
+    result = runner.invoke(cli.app, ["commit", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "Session cost" not in result.output
+
+
+def test_session_cost_counts_regenerations(tmp_path, monkeypatch):
+    _init_repo_with_staged_change(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr(cli, "generate_commit_message", _fake_generate_with_usage)
+
+    result = runner.invoke(cli.app, ["commit", "--verbose"], input="r\nn\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Aborted" in result.output
+    assert "Session cost: $0.000246 (2 requests" in result.output
