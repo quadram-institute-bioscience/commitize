@@ -8,13 +8,21 @@ OpenAI-compatible API (OpenAI, Groq, local Ollama, etc.) can be configured too.
 
 ## Install
 
+Install straight from GitHub, no clone needed:
+
 ```bash
-# with uv (recommended)
-uv tool install .
+# with uv (recommended): installs the `commitize` command in its own isolated env
+uv tool install git+https://github.com/quadram-institute-bioscience/commitize
+
+# or with pipx
+pipx install git+https://github.com/quadram-institute-bioscience/commitize
 
 # or with pip, in a virtualenv
-pip install .
+pip install git+https://github.com/quadram-institute-bioscience/commitize
 ```
+
+To try it once without installing: `uvx --from git+https://github.com/quadram-institute-bioscience/commitize commitize`.
+To upgrade later: `uv tool upgrade commitize` (or `pip install -U git+https://...`).
 
 ## Quick start
 
@@ -140,6 +148,8 @@ List configured providers with `commitize providers list`.
 ## Development
 
 ```bash
-uv pip install -e ".[dev]"
-pytest
+git clone https://github.com/quadram-institute-bioscience/commitize
+cd commitize
+uv sync --extra dev
+uv run pytest
 ```
