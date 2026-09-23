@@ -48,6 +48,25 @@ build/
 !keep.log
 ```
 
+## Repository context
+
+To help the model pick the right type, scope and wording, commitize also
+sends the subjects of the last 15 commits (`commit.recent_commits`; `0`
+disables it). You can add guidance for your repository in a
+`.commitize-context.md` file at the repo root. The model treats it as rules
+from the maintainers:
+
+```markdown
+weatherctl: a CLI that fetches and prints weather forecasts.
+
+Scopes: net (everything under src/weatherctl/transport/), render, readme.
+README and image changes are `docs`, never `feat`.
+When a change fixes a GitHub issue named in the code, end the subject with "(#N)".
+```
+
+Only the first 4000 bytes are sent (`commit.max_context_bytes`). Like the
+diff, this file goes to your LLM provider, so don't put secrets in it.
+
 ## Usage
 
 ```bash
@@ -57,6 +76,8 @@ commitize commit --all    # stage tracked modifications first (like `git commit 
 commitize commit --dry-run           # print the message, don't commit
 commitize commit --provider openai   # use a different configured provider
 commitize commit --model gpt-4o      # override the model for this run
+commitize commit --summary "Remove dead code"   # tell the LLM what the main change is
+commitize commit --verbose  # show provider/model, and the session cost on OpenRouter
 commitize release                  # generate a changelog since the last release
 commitize release -o CHANGELOG.md  # write to file instead of printing
 ```
@@ -87,7 +108,7 @@ default = "openrouter"
 [providers.openrouter]
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
-model = "openai/gpt-4o-mini"
+model = "deepseek/deepseek-v4-flash"
 
 [providers.openai]
 base_url = "https://api.openai.com/v1"
@@ -100,6 +121,9 @@ confirm = true
 max_diff_bytes = 8000
 sign_off = false
 ignore_file = ".commitize-ignore"
+context_file = ".commitize-context.md"
+max_context_bytes = 4000
+recent_commits = 15
 ```
 
 Add your own OpenAI-compatible provider (e.g. a local Ollama server) with:
