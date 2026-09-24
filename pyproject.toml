@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "commitize"
-version = "0.2.0"
+version = "0.2.1"
 description = "Generate git commit messages with an LLM (OpenRouter first-class, any OpenAI-compatible provider supported)"
 readme = "README.md"
 license = "MIT"
