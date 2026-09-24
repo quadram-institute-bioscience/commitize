@@ -151,7 +151,8 @@ def release_cmd(
         if verbose:
             console.print("[dim]Requesting changelog from LLM...[/]")
         try:
-            changelog = generate_changelog(client, commits, existing_text=existing_text)
+            with _spinner(client, "Generating changelog"):
+                changelog = generate_changelog(client, commits, existing_text=existing_text)
         except (LLMAuthError, LLMRequestError) as exc:
             console.print(f"[red]Error generating changelog:[/] {exc}")
             raise typer.Exit(1)
@@ -319,6 +320,12 @@ def _report_usage(client: OpenAICompatibleClient, verbose: bool) -> None:
         console.print(f"[dim]Session cost: ${usage.cost:.6f} ({requests}, {tokens}).[/]")
 
 
+def _spinner(client: OpenAICompatibleClient, label: str):
+    # On stderr so piped stdout (e.g. `release` output) stays clean; Rich
+    # renders nothing when stderr is not a terminal.
+    return err_console.status(f"[cyan]{label}[/] [dim]({client.model})[/]", spinner="dots")
+
+
 def _generate(
     client: OpenAICompatibleClient,
     config: Config,
@@ -330,7 +337,8 @@ def _generate(
     if verbose:
         console.print("[dim]Requesting commit message from LLM...[/]")
     try:
-        message = generate_commit_message(client, change, config, summary=summary, context=context)
+        with _spinner(client, "Generating commit message"):
+            message = generate_commit_message(client, change, config, summary=summary, context=context)
     except (LLMAuthError, LLMRequestError) as exc:
         console.print(f"[red]Error generating message:[/] {exc}")
         return None
